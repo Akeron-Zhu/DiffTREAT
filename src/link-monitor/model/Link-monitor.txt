@@ -1,0 +1,4 @@
+LinkMonitor用于输出Ipv4LinkProbe中m_stat的状态
+LinkProbe用于被Ipv4LinkProbe继承，并在此引入了LinkMonitor。
+Ipv4LinkProbe调用了一系列的监视，包括各种队列和链路，但是它们的callback函数指向于Ipv4QueueProbe中，
+Ipv4QueueProbe用于响应Callback并重新调用Ipv4LinkProbe中的函数，传入新的变量。

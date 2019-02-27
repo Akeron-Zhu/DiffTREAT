@@ -1,0 +1,90 @@
+Cache is added on Node, but still no busy flag.
+Monitor the disc drop packets. (modify queue-disc flowMoitor)
+fct.txt will show the drop packets.
+
+1101:
+	replace the t.sh calfct.sh respectively with xml and calfct, the arguments of xml is different with t.sh. cancel the flowCount input.
+
+1101_v2:
+	modify a bug in priosubqueuedisc and pfifofastqueue, bug in DoPeek();
+	optimize the time interactive with cache;
+	set the cache threshold 0.4-0.6
+	judge the buffer overflow after cache event.
+
+1102:
+	This is a little change version.
+	Add some debug model in enqueue and dequeue in prio-queue-disc, cause find the SIGFPE and SIGEGV signal in simulation.	
+	Optimize the output of xml and calfct (divide 0);
+
+1105：
+	big chang of last version. 
+	Design the Cache of WRConcurrent function. it can support full duplex and half duplex. and No clearly bug find. 
+
+1107：
+	Forget to note change. But this is a little change version.
+
+1117:
+	Realize the DropOnFull;
+		 But this verion has the problem of Duplicate packet, because there are same packet in the cache and queue, so may transfer same packet twice, increase the FCT. Change the function of AddHeader in ipv4-queue-disc-item.
+		 when enqueue at disc, we need to convert the rto tag to the disc id.
+	change the some function name;
+
+1118：
+	Add the clear cache function of cache in the DropOnFull.
+	Modify the simulation.cc, clear the bug of SIGFPE.
+
+1126:
+	Big Change Version.
+	Modify the Cache storage the packet in flow group.
+	Add the urge packet. but urge packet is not connect with cache.
+	Use & in the two level map or direct use the two demision array.
+
+1129:
+	UrgePacket with cache.
+	the control packt place in the band 1, cache packet put in the band 2.
+	change the ReTxThre as 10 and every 10 packet send 1 urge packet.
+
+1129_2:
+	Add the size rank in BulkSendApplication.cc。
+	Set the rto of cache flow 10ms.
+	
+1130：
+	Formulate the function, add many attribute of BulKSendApplication、PioQueueDisc、Cache and TCPSocketBase.
+	In the simultion, we can control the switch。
+	fix a bug of 1129. the ECN marking bug.
+
+
+1130_2:
+	Add some optimization.
+	Add the model FIFO cache.
+
+1202:
+	New Version.
+	Optimize the urge packet function.
+	Fix some bug. rename EnqueuePktCache as EnqueueDecache and rename DequeueCachePkt as DequeueEncache. those two funtions used in the prio-queue-disc, they must reference in for keep GetNPackets() and GetNBytes() right. as Enqueue() and Dequeue() in QueueDisc.
+
+1202_2:
+	Add the new way to EnCache. No outorder problem.
+
+1203:
+	Improve the contest mechanism with urge packet.
+	Modify the eff, now they can reach 1.0.
+
+1205:
+	Little change.
+	Modify some default value. Cause the value of attribute is default.
+	Change cache threshold. Modify the Marking mechanism.
+
+1208:
+	Uncache in Round-Robin way. and set an alone marking threshold. 
+	Fixs bug of reTxThre in tcp-socket-base.
+	IPV4.assign() function will automatically add disc. so we need remove it.
+
+1217:
+	Little chang.
+	modify some default arguments in simulation.cc
+	and optimize the packet-sink in flow-monitor.cc 
+
+0107:
+    In this version, we have set at server also have cahce. If you want to use ECN, modify the cache.cc set the GetLocation return right value.
+    

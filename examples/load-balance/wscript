@@ -1,0 +1,55 @@
+## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+def build(bld):
+    obj = bld.create_ns3_program('dctcp-drb-original',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'congestion-probing'])
+    obj.source = 'dctcp-drb-original.cc'
+
+    obj = bld.create_ns3_program('conga-simulation',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'conga-routing', 'link-monitor'])
+    obj.source = ['conga-simulation.cc', 'cdf.c']
+
+    obj = bld.create_ns3_program('conga-flowlet-test',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'conga-routing', 'link-monitor'])
+    obj.source = ['conga-flowlet-test.cc', 'cdf.c']
+
+    obj = bld.create_ns3_program('simulation',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'conga-routing', 'link-monitor', 'tlb', 'tlb-probing', 'drb-routing', 'drill-routing', 'letflow-routing'])
+    obj.source = ['simulation.cc', 'cdf.c']
+
+    obj = bld.create_ns3_program('mto',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'link-monitor'])
+    obj.source = ['mto.cc', 'cdf.c']
+
+    obj = bld.create_ns3_program('deadline',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'link-monitor'])
+    obj.source = ['deadline.cc', 'cdf.c']
+
+    obj = bld.create_ns3_program('spark-shuffle',
+                                 ['point-to-point', 'applications', 'internet', 'flow-monitor', 'conga-routing'])
+    obj.source = 'spark-shuffle.cc'
+
+    obj = bld.create_ns3_program('xpath-routing',
+                                 ['point-to-point', 'applications', 'internet', 'congestion-probing', 'xpath-routing'])
+    obj.source = 'xpath-routing.cc'
+
+    obj = bld.create_ns3_program('tlb-simulation',
+                                 ['point-to-point', 'applications', 'internet', 'congestion-probing', 'xpath-routing', 'tlb', 'tlb-probing'])
+    obj.source = 'tlb-simulation.cc'
+
+    obj = bld.create_ns3_program('tlb-ecmp-simulation',
+                                 ['point-to-point', 'applications', 'internet', 'congestion-probing', 'xpath-routing', 'tlb', 'tlb-probing'])
+    obj.source = 'tlb-ecmp-simulation.cc'
+
+    obj = bld.create_ns3_program('tlb-drb-simulation',
+                                 ['point-to-point', 'applications', 'internet', 'congestion-probing', 'xpath-routing', 'tlb', 'tlb-probing'])
+    obj.source = 'tlb-drb-simulation.cc'
+
+    obj = bld.create_ns3_program('tlb-conga-simulation',
+                                 ['point-to-point', 'applications', 'internet', 'conga-routing', 'flow-monitor'])
+    obj.source = 'tlb-conga-simulation.cc'
+
+    obj = bld.create_ns3_program('fattree-simulation',
+                                 ['point-to-point', 'applications', 'internet', 'xpath-routing', 'tlb', 'tlb-probing', 'flow-monitor', 'drb-routing'])
+    obj.source = ['fattree-simulation.cc', 'cdf.c']
+
