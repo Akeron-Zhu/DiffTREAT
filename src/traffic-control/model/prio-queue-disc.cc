@@ -97,12 +97,17 @@ TypeId PrioQueueDisc::GetTypeId(void)
                                         MakeBooleanChecker())
                           .AddAttribute("CacheThre",
                                         "Maximum segment lifetime in seconds, use for TIME_WAIT state transition to CLOSED state",
-                                        DoubleValue(0.6),
+                                        DoubleValue(0.7),
                                         MakeDoubleAccessor(&PrioQueueDisc::m_cacheThre),
+                                        MakeDoubleChecker<double>(0))
+                          .AddAttribute("AlertThre",
+                                        "Maximum segment lifetime in seconds, use for TIME_WAIT state transition to CLOSED state",
+                                        DoubleValue(0.5),
+                                        MakeDoubleAccessor(&PrioQueueDisc::m_alertThre),
                                         MakeDoubleChecker<double>(0))
                           .AddAttribute("UnCacheThre",
                                         "Maximum segment lifetime in seconds, use for TIME_WAIT state transition to CLOSED state",
-                                        DoubleValue(0.4),
+                                        DoubleValue(0.3),
                                         MakeDoubleAccessor(&PrioQueueDisc::m_uncacheThre),
                                         MakeDoubleChecker<double>(0))
                           .AddAttribute("MarkThre",
@@ -113,6 +118,10 @@ TypeId PrioQueueDisc::GetTypeId(void)
                           .AddAttribute("CacheBand", "Cache Band",
                                         UintegerValue(2),
                                         MakeUintegerAccessor(&PrioQueueDisc::m_cacheBand),
+                                        MakeUintegerChecker<uint32_t>())
+                          .AddAttribute("Scheduler", "NTcp or PIAS",
+                                        UintegerValue(0),
+                                        MakeUintegerAccessor(&PrioQueueDisc::m_scheduler),
                                         MakeUintegerChecker<uint32_t>())
                           .AddAttribute("MarkCacheThre", "Cache Band",
                                         UintegerValue(240),
@@ -129,8 +138,10 @@ PrioQueueDisc::PrioQueueDisc()
       m_EnableUrge(false),
       m_EnCacheFirst(false),
       m_cacheBand(2),
-      m_cacheThre(0.5),
-      m_uncacheThre(0.4)
+      m_cacheThre(0.7),
+      m_alertThre(0.5),
+      m_uncacheThre(0.3),
+      m_scheduler(0)
 {
   NS_LOG_FUNCTION(this);
 }
@@ -258,7 +269,7 @@ void PrioQueueDisc::CachePacket()
     {
       DequeueEncache(item);
       m_cache->DoEnqueue(m_discId, item);
-      if (OverThre(m_cacheThre))
+      if (OverThre(m_alertThre)) //0331 version use the m_cacheThre
       {
         Time txTime = m_cache->GetDataRate().CalculateBytesTxTime(item->GetPacketSize());
         m_CacheEvent = Simulator::Schedule(txTime, &PrioQueueDisc::CachePacket, this);
@@ -289,7 +300,7 @@ void PrioQueueDisc::UnCachePacket()
     if (item != 0)
     {
       DoEnqueue(m_cacheBand - 1, item);
-      if (!OverThre(m_uncacheThre))
+      if (!OverThre(m_alertThre)) //0331 version use m_uncacheThre
       {
         Time txTime = m_cache->GetDataRate().CalculateBytesTxTime(item->GetPacketSize());
         m_UnCacheEvent = Simulator::Schedule(txTime, &PrioQueueDisc::UnCachePacket, this);
@@ -509,11 +520,13 @@ bool PrioQueueDisc::DoEnqueue(Ptr<QueueDiscItem> item)
   NS_LOG_FUNCTION(this << item);
 
   uint32_t band = 0;
-  int32_t ret = Classify(item);
+  int32_t ret = -1;
+  if(m_scheduler==0) ret=Classify(item);
+  else ret=0;
 
   if (ret == PacketFilter::PF_NO_MATCH)
   {
-    band = m_cacheBand - 2;
+    band = 0;
     NS_LOG_LOGIC("The filter was unable to classify; using default band of " << band);
   }
   else
@@ -528,7 +541,7 @@ bool PrioQueueDisc::DoEnqueue(Ptr<QueueDiscItem> item)
     else
     {
       //NS_LOG_DEBUG(
-      printf("Illegal band, use the default band 0\n");
+      printf("Illegal band %d, use the default band 0\n",ret);
     }
   }
 
@@ -542,10 +555,6 @@ bool PrioQueueDisc::DoEnqueue(Ptr<QueueDiscItem> item)
     {
       if (band == m_cacheBand)
       {
-        Ptr<Packet> p = item->GetPacket();
-        FlowIdTag flowIdTag;
-        p->PeekPacketTag(flowIdTag);
-        uint32_t flowid = flowIdTag.GetFlowId();
         if (OverThre(m_cacheThre)) //|| m_cache->GetFlowCacheNumber(m_discId, flowid) > 0)
         {
           band = m_cacheBand + 1;
@@ -618,7 +627,8 @@ bool PrioQueueDisc::DoEnqueue(Ptr<QueueDiscItem> item)
     }
     else
     {
-      if ((band == m_cacheBand - 1 && DiscClassOverThre(m_cacheBand - 1, m_markingThre)) || (band == m_cacheBand && m_cache->GetDiscCacheNumber(m_discId) > m_markCacheThre))
+      //if ((band == m_cacheBand - 1 && DiscClassOverThre(m_cacheBand - 1, m_markingThre)) || (band == m_cacheBand && m_cache->GetDiscCacheNumber(m_discId) > m_markCacheThre))
+      if ((band < m_cacheBand  && GetDiscClassSizeSum(0,m_cacheBand) > 65) || (band == m_cacheBand && GetDiscClassSize(m_cacheBand)>150))
       {
         Ptr<Ipv4QueueDiscItem> ipv4Item = DynamicCast<Ipv4QueueDiscItem>(item);
         Ipv4Header header;
@@ -790,8 +800,7 @@ uint32_t
 PrioQueueDisc::GetDiscClassSize(uint32_t inx) const
 {
   NS_LOG_FUNCTION(this << inx);
-  return GetQueueDiscClass(inx)->GetQueueDisc()->GetNPackets();
-  /*if (GetMode() == Queue::QUEUE_MODE_PACKETS)
+  if (GetMode() == Queue::QUEUE_MODE_PACKETS)
   {
     return GetQueueDiscClass(inx)->GetQueueDisc()->GetNPackets();
   }
@@ -799,6 +808,24 @@ PrioQueueDisc::GetDiscClassSize(uint32_t inx) const
   {
     return GetQueueDiscClass(inx)->GetQueueDisc()->GetNBytes();
   }//*/
+}
+
+uint32_t
+PrioQueueDisc::GetDiscClassSizeSum(uint32_t start,uint32_t end) const
+{
+  NS_LOG_FUNCTION(this << start <<end);
+  uint32_t res=0;
+  if (GetMode() == Queue::QUEUE_MODE_PACKETS)
+  {
+    for(uint32_t i = start;i < end; i++)
+      res+= GetQueueDiscClass(i)->GetQueueDisc()->GetNPackets();
+  }
+  else if (GetMode() == Queue::QUEUE_MODE_BYTES)
+  {
+    for(uint32_t i = start;i < end; i++)
+      res+=GetQueueDiscClass(i)->GetQueueDisc()->GetNBytes();
+  }
+  return res;
 }
 
 bool PrioQueueDisc::DiscClassOverThre(uint32_t inx, double thre)

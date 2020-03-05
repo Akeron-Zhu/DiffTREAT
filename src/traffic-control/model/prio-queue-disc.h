@@ -105,6 +105,7 @@ public:
   bool CheckUrge();
   void UrgeCachePacket(uint32_t flowid, uint32_t urgeNum);
   uint32_t GetDiscClassSize(uint32_t inx) const;
+  uint32_t GetDiscClassSizeSum(uint32_t start, uint32_t end) const;
   bool DiscClassOverThre(uint32_t inx, double thre);
   bool OverThre(double thre);
   void SetMode(Queue::QueueMode mode);
@@ -139,9 +140,11 @@ private:
   EventId m_UnCacheEvent;
   EventId m_UrgeEvent;
   double m_cacheThre;
+  double m_alertThre;
   double m_uncacheThre;
   double m_markingThre;
   uint32_t m_markCacheThre;
+  uint32_t m_scheduler;
   /************************************************************/
 };
 

@@ -344,6 +344,7 @@ void QueueDisc::AddQueueDiscClass(Ptr<QueueDiscClass> qdClass)
 Ptr<QueueDiscClass>
 QueueDisc::GetQueueDiscClass(uint32_t i) const
 {
+  NS_LOG_FUNCTION(this);
   NS_ASSERT(i < m_classes.size());
   return m_classes[i];
 }

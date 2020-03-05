@@ -43,13 +43,49 @@ extern "C"
 
 // Adopted from the simulation from WANG PENG
 // Acknowledged to https://williamcityu@bitbucket.org/williamcityu/2016-socc-simulation.git
-#define PACKET_SIZE 1400
+#define PACKET_SIZE 1460
 
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE("TestPrio");
+NS_LOG_COMPONENT_DEFINE("Mto");
 
-//
+
+double smartTrans_thres[3][5][7] =  {
+                      {21088, 1862458, 2203357, 6276362, 7742986, 9209610, 16311512, 
+                        21622, 251123, 592732, 2875870, 4156902, 6042702, 9092780, 
+                        21073, 1851914, 2183491, 6164287, 7658930, 9153572, 16050003, 
+                        21421, 1844024, 2190196, 5875008, 7441971, 9008933, 15375020, 
+                        20566, 1891288, 2223938, 6904054, 8213755, 9523456, 17776127}, //seed 1575264677
+                      
+                      {1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353, //417803682
+1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353,  
+1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353, 
+1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353,  
+8929, 69076, 189230, 309384, 818072, 2518715, 65109359}, //seed: 1576432661
+                      {1117531, 5214389, 6838600, 7154841, 7867791, 8184033, 9608968, 
+                        409509, 1264615, 5123640, 8346598, 8755107, 9163615, 9591492, 
+                        949163, 4877654, 6124481, 6397249, 6923318, 7196085, 9727233, 
+                        304051, 2219843, 7760616, 8063667, 9090847, 9393898, 9696949, 
+                        2383091, 2840237, 3297383, 4917594, 6472674, 9085709, 9542855} //uniform seed: 1575353177
+                            
+};
+
+/*
+{1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353, 
+1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353,  
+1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353, 
+1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353, 
+8929, 69076, 189230, 309384, 818072, 2518715, 65109359},
+*/
+
+/*
+
+                      {1060, 3090, 392386, 31823031, 904381903, 936254654, 968127353, 
+                        298700, 340291, 381882, 732240, 1320919, 1909598, 2498277, 
+                        140318, 196839, 253360, 309881, 366402, 739257, 1539245, 
+                        215, 2644, 3075, 5849, 398973, 2230302, 56676422, 
+                        1459948, 1627214, 1794480, 2275225, 2442491, 2609757, 2777022}, //seed: 417803682
+*/
 
 struct FlowInfo
 {
@@ -103,41 +139,56 @@ T rand_range(T min, T max)
   return min + ((double)max - min) * rand() / RAND_MAX;
 }
 
+
+std::string getStr(int value)
+{
+    std::string s="";
+    if(value<0) return s;
+    do
+    {
+        s+=(char)((value%10)+'0');
+        value/=10;
+    } while(value!=0);
+    return std::string(s.rbegin(),s.rend());
+}
+
 int main(int argc, char *argv[])
 {
 #if 1
-  LogComponentEnable("TestPrio", LOG_LEVEL_DEBUG);
+  LogComponentEnable("Mto", LOG_LEVEL_DEBUG);
   //LogComponentEnable("PointToPointNetDevice", LOG_LEVEL_DEBUG);
   //LogComponentEnable("Cache", LOG_LEVEL_DEBUG);
-  //LogComponentEnable("PrioQueueDisc", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("BulkSendApplication", LOG_LEVEL_DEBUG);
+  //LogComponentEnable("QueueDisc", LOG_LEVEL_FUNCTION);
+  //LogComponentEnable("PrioQueueDisc", LOG_LEVEL_FUNCTION);
+  //LogComponentEnable("PrioSubqueueDisc", LOG_LEVEL_DEBUG);
 #endif
-  std::string loadCdf = "DCTCP_CDF.txt";
-  bool m_enableCache = true;
-  bool m_enableMakring = true;
-  bool m_enableUrgePkt = true; //if false, disc not deal urge packet. and tcp also not send urge
+  std::string cdfFileName = "DCTCP_CDF.txt";
+  bool m_enableCache = false;
+  bool m_enableMarking = true;
+  bool m_enableUrgePkt = false; //if false, disc not deal urge packet. and tcp also not send urge
   bool m_enableRtoRank = true; //if false no priority
   bool m_enableSizeRank = true;
   bool m_cacheFirst = true;
   bool m_cacheFIFO = false; //if ture m_enableUrgePkt must be false.
   bool m_enableCacheLog = false;
   bool m_contest = false;
-  bool m_WRConcurrent = false;
+  bool m_WRConcurrent = true;
 
   DataRate m_cacheSpeed = DataRate("50Gbps");
-  double START_TIME = 0.0, END_TIME = 0.1, FLOW_LAUNCH_END_TIME = 0.10;
+  double START_TIME = 0.0, END_TIME = 0.2, FLOW_LAUNCH_END_TIME = 0.10;
   uint32_t m_cacheBand = 2;
   uint32_t m_uncacheFlowRto = 5; //ms
-  uint32_t m_cacheFlowRto = 10;
   uint32_t m_reTxThre = 1000;
-  double m_cacheThre = 0.5;
-  double m_uncacheThre = 0.4;
-  double m_markThre = 0.34;
+  double m_cacheThre = 0.7;
+  double m_alertThre = 0.5;
+  double m_uncacheThre = 0.3;
+  double m_markThre = 0.1;
   uint32_t m_markCacheThre = 500;
   uint32_t m_cachePor = 50;
 
-  bool m_isNtcp = false; //modify retxthre and minrto for cacheable flow and control urge pkt with m_enableUrgePkt
+  uint32_t m_scheduler = 0; //modify retxthre and minrto for cacheable flow and control urge pkt with m_enableUrgePkt
   uint32_t m_cdfType = 0;
+  std::string DataPath="";
 
   double load = 0.5;
   double leafServerCapacity = 10;
@@ -159,7 +210,7 @@ int main(int argc, char *argv[])
   cmd.AddValue("EndTime", "End time of the simulation", END_TIME);
   cmd.AddValue("FlowLaunchEndTime", "End time of the flow launch period", FLOW_LAUNCH_END_TIME);
   cmd.AddValue("randomSeed", "Random seed, 0 for random generated", randomSeed);
-  cmd.AddValue("cdfFileName", "File name for flow distribution", loadCdf);
+  cmd.AddValue("cdfFileName", "File name for flow distribution", cdfFileName);
   cmd.AddValue("load", "Load of the network, 0.0 - 1.0", load);
   cmd.AddValue("transportProt", "Transport protocol to use: Tcp, DcTcp", transportProt);
   cmd.AddValue("linkLatency", "Link latency, should be in MicroSeconds", linkLatency);
@@ -168,32 +219,54 @@ int main(int argc, char *argv[])
   uint64_t LINK_CAPACITY = leafServerCapacity * LINK_CAPACITY_BASE;
   Time LINK_LATENCY = MicroSeconds(linkLatency);
 
-  if (transportProt.compare("NTcp") != 0)
+  
+  if (transportProt.compare("NTcp") == 0)
   {
     m_enableCache = false;
-    m_enableMakring = false;
+    m_enableMarking = true;
+    m_enableUrgePkt = false; //if false, disc not deal urge packet.
+    m_enableSizeRank = true;
+    resequenceBuffer = false;
+    m_scheduler = 0;
+  }
+  else if(transportProt.compare("Pias") == 0)
+  {
+    m_enableCache = false;
+    m_enableMarking = true;
+    m_enableUrgePkt = false; //if false, disc not deal urge packet.
+    m_enableSizeRank = true;
+    resequenceBuffer = false;
+    m_scheduler = 1;
+  }
+  else
+  {
+    m_enableCache = false;
+    m_enableMarking = false;
     m_enableUrgePkt = false; //if false, disc not deal urge packet.
     m_enableSizeRank = false;
     resequenceBuffer = false;
-    m_isNtcp = false;
-    m_cacheFlowRto = 5;
+    m_scheduler = 2;
   } //*/
-  else
-  {
-    m_isNtcp = true;
-    resequenceBuffer = true;
-  }
 
-  if (loadCdf[0] == 'D')
-    m_cdfType = 0;
-  else if (loadCdf[0] == 'V')
-    m_cdfType = 1;
-  else if (loadCdf[0] == 'L')
-    m_cdfType = 2;
+  if (cdfFileName[0] == 'D')
+  {
+      DataPath="../../../Data/mtod/"+getStr(load*10)+'/'+id+'/';
+      m_cdfType = 0;
+  }
+  else if (cdfFileName[0] == 'V')
+  {
+      DataPath="../../../Data/mtov/"+getStr(load*10)+'/'+id+'/';
+      m_cdfType = 1;
+  }
+  else if (cdfFileName[0] == 'L')
+  {
+      DataPath="../../../Data/mtol/"+getStr(load*10)+'/'+id+'/';
+      m_cdfType = 2;
+  }
   else
   {
-    std::cout << "CDF File ERROR!\n";
-    return 0;
+      std::cout << "CDF File ERROR!\n";
+      return 0;
   }
 
   NS_LOG_INFO("Initialize random seed: " << randomSeed);
@@ -219,19 +292,19 @@ int main(int argc, char *argv[])
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(PACKET_SIZE));
   Config::SetDefault("ns3::TcpSocket::DelAckCount", UintegerValue(0));
   Config::SetDefault("ns3::TcpSocket::InitialCwnd", UintegerValue(10));
-  Config::SetDefault("ns3::TcpSocketBase::MinRto", TimeValue(MilliSeconds(m_cacheFlowRto)));
+  Config::SetDefault("ns3::TcpSocketBase::MinRto", TimeValue(MilliSeconds(10)));
   Config::SetDefault("ns3::TcpSocketBase::UrgeSend", BooleanValue(m_enableUrgePkt)); //added
   Config::SetDefault("ns3::TcpSocketBase::ClockGranularity", TimeValue(MicroSeconds(100)));
   Config::SetDefault("ns3::RttEstimator::InitialEstimation", TimeValue(MicroSeconds(80)));
   Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(160000000));
   Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(160000000));
   Config::SetDefault("ns3::Ipv4GlobalRouting::PerflowEcmpRouting", BooleanValue(true));
-  srand((unsigned)time(NULL));
+
   Ptr<Node> Switches = CreateObject<Node>();
   NodeContainer serverNode;
   serverNode.Create(ServerNum);
 
-  if (transportProt.compare("NTcp") == 0 && m_enableCache)
+  if (transportProt.compare("NTcp") == 0)
   {
 
     Config::SetDefault("ns3::Cache::FIFO", BooleanValue(m_cacheFIFO));
@@ -294,13 +367,15 @@ int main(int argc, char *argv[])
   }
   else if (transportProt.compare("NTcp") == 0)
   {
+    Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpDCTCP::GetTypeId()));
     Config::SetDefault("ns3::PrioQueueDisc::Mode", StringValue("QUEUE_MODE_PACKETS"));
     Config::SetDefault("ns3::PrioQueueDisc::EnableCache", BooleanValue(m_enableCache));
-    Config::SetDefault("ns3::PrioQueueDisc::EnableMarking", BooleanValue(m_enableMakring));
+    Config::SetDefault("ns3::PrioQueueDisc::EnableMarking", BooleanValue(m_enableMarking));
     Config::SetDefault("ns3::PrioQueueDisc::EnableUrge", BooleanValue(m_enableUrgePkt));
     Config::SetDefault("ns3::PrioQueueDisc::CacheBand", UintegerValue(m_cacheBand));
     Config::SetDefault("ns3::PrioQueueDisc::EnCacheFirst", BooleanValue(m_cacheFirst));
     Config::SetDefault("ns3::PrioQueueDisc::CacheThre", DoubleValue(m_cacheThre));
+    Config::SetDefault("ns3::PrioQueueDisc::AlertThre", DoubleValue(m_alertThre));
     Config::SetDefault("ns3::PrioQueueDisc::UnCacheThre", DoubleValue(m_uncacheThre));
     Config::SetDefault("ns3::PrioQueueDisc::MarkThre", DoubleValue(m_markThre));
     Config::SetDefault("ns3::PrioQueueDisc::MarkCacheThre", UintegerValue(m_markCacheThre));
@@ -324,8 +399,27 @@ int main(int argc, char *argv[])
     Config::SetDefault("ns3::PrioQueueDisc::UnCacheThre", DoubleValue(m_uncacheThre));
     Config::SetDefault("ns3::PrioQueueDisc::MarkThre", DoubleValue(m_markThre));
     Config::SetDefault("ns3::PrioQueueDisc::MarkCacheThre", UintegerValue(m_markCacheThre));
+    Config::SetDefault("ns3::PrioQueueDisc::Scheduler", UintegerValue(m_scheduler));
     m_reTxThre = 3;
     m_enableSizeRank = false;
+    tc.SetRootQueueDisc("ns3::PrioQueueDisc");
+    tc.AddPacketFilter(0, "ns3::PrioQueueDiscFilter");
+  }
+  else if (transportProt.compare("Pias") == 0)
+  {
+    Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpDCTCP::GetTypeId()));
+    Config::SetDefault("ns3::PrioQueueDisc::Mode", StringValue("QUEUE_MODE_PACKETS"));
+    Config::SetDefault("ns3::PrioQueueDisc::EnableCache", BooleanValue(false));
+    Config::SetDefault("ns3::PrioQueueDisc::EnableMarking", BooleanValue(true));
+    Config::SetDefault("ns3::PrioQueueDisc::EnableUrge", BooleanValue(false));
+    Config::SetDefault("ns3::PrioQueueDisc::CacheBand", UintegerValue(m_cacheBand));
+    Config::SetDefault("ns3::PrioQueueDisc::EnCacheFirst", BooleanValue(m_cacheFirst));
+    Config::SetDefault("ns3::PrioQueueDisc::CacheThre", DoubleValue(m_cacheThre));
+    Config::SetDefault("ns3::PrioQueueDisc::UnCacheThre", DoubleValue(m_uncacheThre));
+    Config::SetDefault("ns3::PrioQueueDisc::MarkThre", DoubleValue(m_markThre));
+    Config::SetDefault("ns3::PrioQueueDisc::MarkCacheThre", UintegerValue(m_markCacheThre));
+    Config::SetDefault("ns3::PrioQueueDisc::Scheduler", UintegerValue(m_scheduler));
+    m_reTxThre = 3;
     tc.SetRootQueueDisc("ns3::PrioQueueDisc");
     tc.AddPacketFilter(0, "ns3::PrioQueueDiscFilter");
   }
@@ -354,50 +448,79 @@ int main(int argc, char *argv[])
     }
   }
 
+  /*
   struct cdf_table *cdfTable = new cdf_table();
   init_cdf(cdfTable);
-  load_cdf(cdfTable, loadCdf.c_str());
+  load_cdf(cdfTable, cdfFileName.c_str());
+  double requestRate = load * LINK_CAPACITY / (8 * avg_cdf(cdfTable)) / (ServerNum - 1);//*/
 
   Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
-  double requestRate = load * LINK_CAPACITY / (8 * avg_cdf(cdfTable)) / (ServerNum - 1);
 
-  /*Ptr<Ipv4> ipv4 = serverNode.Get(ServerNum - 1)->GetObject<Ipv4>();
+  /*Ptr<Ipv4> ipv4 = Switches->GetObject<Ipv4>();
   Ipv4InterfaceAddress destInterface = ipv4->GetAddress(1, 0); //得到第一个网络接口的所有IP地址，地址有主次之分
-  Ipv4Address destAddress2 = destInterface.GetLocal();
-  std::cout<<destAddress2<<'\n'; //*/
-  int flowCount = 0;
-  for (int i = 0; i < ServerNum - 1; i++)
+  Ipv4Address destAddress = destInterface.GetLocal();
+  //std::cout<<destAddress2<<'\n'; //*/
+  int flowCount = 0,totalFlowSize=0;
+  for (int serverId = 0; serverId < ServerNum - 1; serverId++)
   {
-    double startTime = START_TIME + poission_gen_interval(requestRate);
-    while (startTime < FLOW_LAUNCH_END_TIME)
+    double startTime= 0;
+    int destServerIndex = 0;
+    uint16_t port = 0;
+    uint32_t flowSize = 0;
+    uint8_t rtoRank = 0;
+    uint8_t sizeRank = 0;
+    std::cout<<DataPath+getStr(serverId)+".txt"<<'\n';
+    std::ifstream in((DataPath+getStr(serverId)+".txt").c_str());
+    if(!in){
+        printf("Error Open!\n");
+        exit(0);
+    }
+    while(in>>startTime)
     {
+      if(in.eof()) break;
+      in>>destServerIndex;
+      in>>port;
+      in>>flowSize;
+      in>>rtoRank;
+      sizeRank = 0;
+      if(m_scheduler != 0) rtoRank = 0;
+      else
+      {
+        int inx_load = load*10;
+        for(uint8_t i=6;i>=0;i--)
+        {
+          if(flowSize >= smartTrans_thres[m_cdfType][inx_load-5][i]) 
+          {
+             sizeRank = i+1;
+             break;
+          }
+        }
+      }
+      rtoRank = 0;
+      printf("%d %d %d %d\n",destServerIndex,port,flowSize,rtoRank);
       flowCount++;
-      uint16_t port = rand_range(PORT_START, PORT_END);
-      uint32_t flowSize = gen_random_cdf(cdfTable);
-
       m_flows.push(FlowInfo(startTime, flowSize));
+      totalFlowSize += flowSize;
 
-      //std::cout << "FlowSize=" << flowSize << '\n';
+      
       Address destAddress(InetSocketAddress(interface.GetAddress(0), port));
       BulkSendHelper source("ns3::TcpSocketFactory", destAddress);
-
-      uint8_t rtoRank = (rand() % 100 + 1) > m_cachePor ? 1 : 2;
-      if (flowSize > 10e6) rtoRank = 2;
-      //        printf("%d\n",rtoRank);
       source.SetAttribute("SendSize", UintegerValue(PACKET_SIZE)); //每次发送的量
       source.SetAttribute("MaxBytes", UintegerValue(flowSize));    //总共发送的数量，0表示无限制
       //source.SetAttribute("DelayThresh", UintegerValue(applicationPauseThresh));       //多少包过去后发生Delay
       //source.SetAttribute("DelayTime", TimeValue(MicroSeconds(applicationPauseTime))); //Delay的时间
       source.SetAttribute("EnableRTORank", BooleanValue(m_enableRtoRank));   //每次发送的量
       source.SetAttribute("EnableSizeRank", BooleanValue(m_enableSizeRank)); //每次发送的量
-      source.SetAttribute("NTcp", BooleanValue(m_isNtcp));
+      source.SetAttribute("Scheduler", UintegerValue(m_scheduler));
       source.SetAttribute("RtoRank", UintegerValue(rtoRank)); //每次发送的量
+      source.SetAttribute("SizeRank", UintegerValue(sizeRank)); //
       source.SetAttribute("CacheBand", UintegerValue(m_cacheBand));
       source.SetAttribute("RTO", TimeValue(MilliSeconds(m_uncacheFlowRto))); //
       source.SetAttribute("ReTxThre", UintegerValue(m_reTxThre));
       source.SetAttribute("CDFType", UintegerValue(m_cdfType));
-      ApplicationContainer sourceApp = source.Install(serverNode.Get(i));
+      source.SetAttribute("Load", UintegerValue(uint32_t(load*10)));
+      ApplicationContainer sourceApp = source.Install(serverNode.Get(serverId));
 
       sourceApp.Start(Seconds(startTime));
       sourceApp.Stop(Seconds(END_TIME));
@@ -406,9 +529,8 @@ int main(int argc, char *argv[])
       ApplicationContainer sinkApp = sink.Install(serverNode.Get(ServerNum - 1));
       sinkApp.Start(Seconds(START_TIME));
       sinkApp.Stop(Seconds(END_TIME));
-
-      startTime += poission_gen_interval(requestRate);
     }
+    in.close();
   }
 
   if (flowCount)
@@ -427,7 +549,7 @@ int main(int argc, char *argv[])
   // 在所有节点上开启流监控
   flowMonitor = flowHelper.InstallAll();
   std::stringstream flowMonitorFilename;
-  flowMonitorFilename << id << "-test-prio-" << load << '-' << ServerNum << "X" << SwitchNum << "-" << transportProt << "-";
+  flowMonitorFilename << id << "-mto-" << load << '-' << ServerNum << "X" << SwitchNum << "-" << transportProt << "-";
   flowMonitorFilename << "b" << BUFFER_SIZE << ".xml";
   printf("Flow Number is :%d\n", flowCount);
   Simulator::Stop(Seconds(END_TIME));

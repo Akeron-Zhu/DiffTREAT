@@ -48,7 +48,7 @@ extern "C"
 
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE("CongaSimulationLarge");
+NS_LOG_COMPONENT_DEFINE("SimulationLarge");
 
 enum RunMode
 {
@@ -73,7 +73,7 @@ std::stringstream rbTraceFilename;
 /****************************************************************************/
 
 bool m_enableCache = true;
-bool m_enableMakring = true;
+bool m_enableMarking = true;
 bool m_enableUrgePkt = true; //if false, disc not deal urge packet. and tcp also not send urge
 bool m_enableRtoRank = true; //if false no priority
 bool m_enableSizeRank = true;
@@ -81,22 +81,48 @@ bool m_cacheFirst = true;
 bool m_cacheFIFO = false; //if ture m_enableUrgePkt must be false.
 bool m_enableCacheLog = false;
 bool m_contest = false;
-bool m_WRConcurrent = false;
+bool m_WRConcurrent = true;
 bool m_isAsymLink1 = false;
 
 DataRate m_cacheSpeed = DataRate("50Gbps");
 uint32_t m_cacheBand = 2;
 uint32_t m_uncacheFlowRto = 5; //ms
-uint32_t m_cacheFlowRto = 10; 
 uint32_t m_reTxThre = 1000;
-double m_cacheThre = 0.5;
-double m_uncacheThre = 0.4;
+double m_cacheThre = 0.7;
+double m_alertThre = 0.5;
+double m_uncacheThre = 0.3;
 double m_markThre = 0.34;
 uint32_t m_markCacheThre = 500;
 uint32_t m_cachePor = 50; 
 
-bool m_isNtcp = false; //modify retxthre and minrto for cacheable flow and control urge pkt with m_enableUrgePkt
+uint32_t m_scheduler = 0; //modify retxthre and minrto for cacheable flow and control urge pkt with m_enableUrgePkt
 uint32_t m_cdfType = 0;
+std::string DataPath="";
+
+
+// The simulation starting and ending time
+double START_TIME = 0.0;
+double END_TIME = 0.2;
+double FLOW_LAUNCH_END_TIME = 0.1;
+
+double smartTrans_thres[3][5][3] =  {
+                      {4983384, 11563497, 21365111, 
+7926412, 9241434, 16346272, 
+7237834, 8909791, 15038425, 
+4462331, 6364015, 9410921, 
+626981, 4903277, 9594147}, // 1575876594
+                      {2982, 7098, 97429615, 
+2886, 5976, 69871857, 
+2880, 7137, 322155636, 
+2769, 5973, 306738309, 
+1937, 3080811, 701426288}, //seed: 1575876873
+                      {5096289, 9744193, 9873793, 
+5465223, 9287951, 9597475, 
+5640441, 9125631, 9676484, 
+5626252, 9378887, 9680685, 
+5408544, 8739558, 9315980} // 1575877051
+                            
+};
 
 struct FlowInfo
 {
@@ -245,10 +271,24 @@ T rand_range(T min, T max)
     return min + ((double)max - min) * rand() / RAND_MAX;
 }
 
+std::string getStr(int value)
+{
+    std::string s="";
+    if(value<0) return s;
+    do
+    {
+        s+=(char)((value%10)+'0');
+        value/=10;
+    } while(value!=0);
+    return std::string(s.rbegin(),s.rend());
+}
+
+
+
 //给一个TOR下的每个服务器设定发送的流和发送的时间
 void install_applications(int srcLeafId, NodeContainer servers, double requestRate, struct cdf_table *cdfTable,
                           long &flowCount, long &totalFlowSize, long &totalCacheableSize, int PER_LEAF_SERVER_COUNT, int LEAF_COUNT, double START_TIME,
-                          double END_TIME, double FLOW_LAUNCH_END_TIME, uint32_t applicationPauseThresh, uint32_t applicationPauseTime)
+                          double END_TIME, double FLOW_LAUNCH_END_TIME, uint32_t applicationPauseThresh, uint32_t applicationPauseTime,double load)
 {
     NS_LOG_INFO("Install applications:");
     //在每个叶结点的服务器上安装应用
@@ -256,24 +296,46 @@ void install_applications(int srcLeafId, NodeContainer servers, double requestRa
     {
         //NS_LOG_INFO("Install Begin");
         //得到服务器的坐标
-        int srcServerIndex = srcLeafId * PER_LEAF_SERVER_COUNT + i;
-        //得到这个服务器开始发送流的时间
-        double startTime = START_TIME + poission_gen_interval(requestRate);
-        //只要开始时间startTime还小于FLOW_LAUNCH_END_TIME，就可以发送
-        while (startTime < FLOW_LAUNCH_END_TIME)
+        int srcServerIndex = srcLeafId * PER_LEAF_SERVER_COUNT + i;        
+        double startTime= 0;
+        int destServerIndex = 0;
+        uint16_t port = 0;
+        uint32_t flowSize = 0;
+        uint8_t rtoRank = 0;
+        uint8_t sizeRank = 0;
+      //  std::cout<<DataPath+getStr(srcServerIndex)<<'\n';
+        std::ifstream in((DataPath+getStr(srcServerIndex)+".txt").c_str());
+        if(!in){
+            std::cout<<"Error open file: " << DataPath+getStr(srcServerIndex)+".txt" <<'\n';
+            exit(0);
+        }
+        while(in>>startTime)
         {
-
-            //std::cout << "startTime=" << startTime << ' ' << "FLOW_LAUNCH_END_TIME=" << FLOW_LAUNCH_END_TIME << '\n';
-            //增加流的数量
-            flowCount++;
-            uint16_t port = rand_range(PORT_START, PORT_END); //生成一个随机端口.
-
-            //生成一个不在这个叶结点下的服务器地址做为目的地址
-            int destServerIndex = srcServerIndex;
-            while (destServerIndex >= srcLeafId * PER_LEAF_SERVER_COUNT && destServerIndex < srcLeafId * PER_LEAF_SERVER_COUNT + PER_LEAF_SERVER_COUNT)
+            if(in.eof()) break;
+            in>>destServerIndex;
+            in>>port;
+            in>>flowSize;
+            in>>rtoRank;
+            sizeRank = 0;
+            if(m_scheduler == 0)
             {
-                destServerIndex = rand_range(0, PER_LEAF_SERVER_COUNT * LEAF_COUNT);
+                int inx_load = int(load*10)/2;
+                for(uint8_t i=2;i>=0;i--)
+                {
+                    if(flowSize >= smartTrans_thres[m_cdfType][inx_load][i]) 
+                    {
+                        sizeRank = i+1;
+                        break;
+                    }
+                }
             }
+
+            printf("%d %d %d %d\n",destServerIndex,port,flowSize,rtoRank);
+            flowCount++;
+            m_flows.push(FlowInfo(startTime, flowSize));
+            totalFlowSize += flowSize;
+            if (rtoRank > 1)
+                totalCacheableSize += flowSize;
 
             Ptr<Node> destServer = servers.Get(destServerIndex);
             Ptr<Ipv4> ipv4 = destServer->GetObject<Ipv4>();
@@ -281,28 +343,20 @@ void install_applications(int srcLeafId, NodeContainer servers, double requestRa
             Ipv4Address destAddress = destInterface.GetLocal();          //得到IPV4地址，因为Ipv4InterfaceAddress中有本地地址、了网掩码和广播地址等。
             //用于在一系列节点上创建BulkSendApplication，其是尽可能填充带宽的应用，但只支持SOCK_STREAM 和 SOCK_SEQPACKET。
             BulkSendHelper source("ns3::TcpSocketFactory", InetSocketAddress(destAddress, port));
-            uint32_t flowSize = gen_random_cdf(cdfTable); //基于CDF产生一个value值，随机产生一个介于0-1的cdf值，然后找到其对应的value值。
-
-            m_flows.push(FlowInfo(startTime, flowSize));
-            uint8_t rtoRank = (rand() % 100 + 1) > m_cachePor? 1:2; // sizeRank = rand() % 8;
-            if(flowSize > 10e6) rtoRank = 2;
-            //记录总的流大小
-            totalFlowSize += flowSize;
-            if (rtoRank > 1)
-                totalCacheableSize += flowSize;
-            //设置一系列发送的属性
             source.SetAttribute("SendSize", UintegerValue(PACKET_SIZE));                     //每次发送的量
             source.SetAttribute("MaxBytes", UintegerValue(flowSize));                        //总共发送的数量，0表示无限制
             source.SetAttribute("DelayThresh", UintegerValue(applicationPauseThresh));       //多少包过去后发生Delay
             source.SetAttribute("DelayTime", TimeValue(MicroSeconds(applicationPauseTime))); //Delay的时间
-            source.SetAttribute("NTcp", BooleanValue(m_isNtcp));
-            source.SetAttribute("RtoRank", UintegerValue(rtoRank));                          //每次发送的量
+            source.SetAttribute("Scheduler", UintegerValue(m_scheduler));
+            source.SetAttribute("RtoRank", UintegerValue(rtoRank)); 
+            source.SetAttribute("SizeRank", UintegerValue(sizeRank)); //                         //每次发送的量
             source.SetAttribute("EnableRTORank", BooleanValue(m_enableRtoRank));             //每次发送的量
             source.SetAttribute("EnableSizeRank", BooleanValue(m_enableSizeRank));           //每次发送的量
             source.SetAttribute("CacheBand", UintegerValue(m_cacheBand));
             source.SetAttribute("RTO", TimeValue(MilliSeconds(m_uncacheFlowRto))); //
             source.SetAttribute("ReTxThre", UintegerValue(m_reTxThre));
             source.SetAttribute("CDFType", UintegerValue(m_cdfType));
+            source.SetAttribute("Load", UintegerValue(uint32_t(load*10)));
 
             // Install apps
             ApplicationContainer sourceApp = source.Install(servers.Get(srcServerIndex));
@@ -320,25 +374,15 @@ void install_applications(int srcLeafId, NodeContainer servers, double requestRa
             ApplicationContainer sinkApp = sink.Install(servers.Get(destServerIndex));
             sinkApp.Start(Seconds(START_TIME));
             sinkApp.Stop(Seconds(END_TIME));
-
-            /*NS_LOG_INFO ("\tFlow from server: " << (((servers.Get(srcServerIndex))->GetObject<Ipv4>())->GetAddress(1,0)).GetLocal() << " to server: "
-                    << (((servers.Get(destServerIndex))->GetObject<Ipv4>())->GetAddress(1,0)).GetLocal()<< " on port: " << port << " with flow size: "
-                    << flowSize << " [start time: " << startTime <<"]");
-            //*/
-            if (requestRate == 0)
-            {
-                std::cout << "requestRate = 0, trap in the while loop!!!" << '\n';
-            }
-            startTime += poission_gen_interval(requestRate);
         }
-        // NS_LOG_INFO("Install OK");
+        in.close();
     }
 }
 
 int main(int argc, char *argv[])
 {
 #if 1
-    // LogComponentEnable("CongaSimulationLarge", LOG_LEVEL_INFO);
+    LogComponentEnable("SimulationLarge", LOG_LEVEL_DEBUG);
     // LogComponentEnable ("Queue",LOG_LEVEL_FUNCTION);
     //LogComponentEnable("Cache", LOG_LEVEL_FUNCTION);
     //LogComponentEnable("TcpSocketBase", LOG_LEVEL_DEBUG);
@@ -351,7 +395,7 @@ int main(int argc, char *argv[])
 
     // Command line parameters parsing
     std::string id = "0";
-    std::string runModeStr = "Conga";
+    std::string runModeStr = "ECMP";
     unsigned randomSeed = 0;
     std::string cdfFileName = "DCTCP_CDF.txt";
     double load = 0.5;
@@ -365,12 +409,8 @@ int main(int argc, char *argv[])
 
     uint64_t spineLeafCapacity = 10;
     uint64_t leafServerCapacity = 10;
-    uint32_t linkLatency = 10; //链路时延
+    uint32_t linkLatency = 10; //链路时延 us
 
-    // The simulation starting and ending time
-    double START_TIME = 0.0;
-    double END_TIME = 0.1;
-    double FLOW_LAUNCH_END_TIME = 0.1;
 
     bool asymCapacity = false;      //是否有链路不对称
     uint32_t asymCapacityPoss = 40; // 40 % 链路不对称的概率，指定了asymCapacity后这个参数才有效
@@ -610,33 +650,50 @@ int main(int argc, char *argv[])
     }
 
     /*************************************************************************************************************************************/
-    if (transportProt.compare("NTcp") != 0 || runMode != ECMP)
+    if (transportProt.compare("NTcp") == 0)
+    {
+        m_enableCache = true;
+        m_enableMarking = true;
+        m_enableUrgePkt = true; //if false, disc not deal urge packet.
+        m_enableSizeRank = true;
+        resequenceBuffer = true;
+        m_scheduler = 0;
+    } //*/
+    else if(transportProt.compare("Pias") == 0)
     {
         m_enableCache = false;
-        m_enableMakring = false;
+        m_enableMarking = true;
+        m_enableUrgePkt = false; //if false, disc not deal urge packet.
+        m_enableSizeRank = true;
+        resequenceBuffer = false;
+        m_scheduler = 1;
+    }
+    else
+    {
+        m_enableCache = false;
+        m_enableMarking = false;
         m_enableUrgePkt = false; //if false, disc not deal urge packet.
         m_enableSizeRank = false;
         resequenceBuffer = false;
-        m_isNtcp = false;
-        m_cacheFlowRto = 5;
+        m_scheduler = 2;
     } //*/
-    else
-    {
-        if(m_enableCache)
-        {
-            m_isNtcp = true;
-            resequenceBuffer = true;
-        }
-        else m_cacheFlowRto = 5;
-    }
-
 
     if (cdfFileName[0] == 'D')
+    {
+        DataPath="../../../Data/DCTCP/"+getStr(load*10)+'/'+id+'/';
+        std::cout<<DataPath<<'\n';
         m_cdfType = 0;
+    }
     else if (cdfFileName[0] == 'V')
+    {
+        DataPath="../../../Data/VL2/"+getStr(load*10)+'/'+id+'/';
         m_cdfType = 1;
+    }
     else if (cdfFileName[0] == 'L')
+    {
+        DataPath="../../../Data/LA/"+getStr(load*10)+'/'+id+'/';
         m_cdfType = 2;
+    }
     else
     {
         std::cout << "CDF File ERROR!\n";
@@ -663,7 +720,7 @@ int main(int argc, char *argv[])
     Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(PACKET_SIZE));
     Config::SetDefault("ns3::TcpSocket::DelAckCount", UintegerValue(0));
     Config::SetDefault("ns3::TcpSocket::InitialCwnd", UintegerValue(10));
-    Config::SetDefault("ns3::TcpSocketBase::MinRto", TimeValue(MilliSeconds(m_cacheFlowRto)));
+    Config::SetDefault("ns3::TcpSocketBase::MinRto", TimeValue(MilliSeconds(10)));
     Config::SetDefault("ns3::TcpSocketBase::UrgeSend", BooleanValue(m_enableUrgePkt)); //added
     Config::SetDefault("ns3::TcpSocketBase::ClockGranularity", TimeValue(MicroSeconds(100)));
     Config::SetDefault("ns3::RttEstimator::InitialEstimation", TimeValue(MicroSeconds(80)));
@@ -736,7 +793,7 @@ int main(int argc, char *argv[])
     leaves.Create(LEAF_COUNT);
     NodeContainer servers;
     servers.Create(PER_LEAF_SERVER_COUNT * LEAF_COUNT);
-    if (transportProt.compare("NTcp") == 0 && m_enableCache)
+    if (transportProt.compare("NTcp") == 0)
     {
         Config::SetDefault("ns3::Cache::FIFO", BooleanValue(m_cacheFIFO));
         Config::SetDefault("ns3::Cache::DataRate", DataRateValue(m_cacheSpeed));
@@ -922,21 +979,38 @@ int main(int argc, char *argv[])
     }
     else if (transportProt.compare("NTcp") == 0)
     {
+        Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpDCTCP::GetTypeId()));
         Config::SetDefault("ns3::PrioQueueDisc::Mode", StringValue("QUEUE_MODE_PACKETS"));
         Config::SetDefault("ns3::PrioQueueDisc::EnableCache", BooleanValue(m_enableCache));
-        Config::SetDefault("ns3::PrioQueueDisc::EnableMarking", BooleanValue(m_enableMakring));
+        Config::SetDefault("ns3::PrioQueueDisc::EnableMarking", BooleanValue(m_enableMarking));
         Config::SetDefault("ns3::PrioQueueDisc::EnableUrge", BooleanValue(m_enableUrgePkt));
         Config::SetDefault("ns3::PrioQueueDisc::CacheBand", UintegerValue(m_cacheBand));
         Config::SetDefault("ns3::PrioQueueDisc::EnCacheFirst", BooleanValue(m_cacheFirst));
         Config::SetDefault("ns3::PrioQueueDisc::CacheThre", DoubleValue(m_cacheThre));
+        Config::SetDefault("ns3::PrioQueueDisc::AlertThre", DoubleValue(m_alertThre));
         Config::SetDefault("ns3::PrioQueueDisc::UnCacheThre", DoubleValue(m_uncacheThre));
         Config::SetDefault("ns3::PrioQueueDisc::MarkThre", DoubleValue(m_markThre));
         Config::SetDefault("ns3::PrioQueueDisc::MarkCacheThre", UintegerValue(m_markCacheThre));
-	if (!m_cacheFirst)
+	    Config::SetDefault("ns3::PrioQueueDisc::Scheduler", UintegerValue(m_scheduler)); //Because NTcp and PIAS all use PrioQueueDisc, but PIAS doesn't support rtoRank, so it needs a var to recongnize what is protoctol.
+        if (!m_cacheFirst)
         {
             m_reTxThre = 3;
         }
 
+        tc.SetRootQueueDisc("ns3::PrioQueueDisc");
+        tc.AddPacketFilter(0, "ns3::PrioQueueDiscFilter");
+    }
+    else if (transportProt.compare("Pias") == 0)
+    {
+        Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpDCTCP::GetTypeId()));
+        Config::SetDefault("ns3::PrioQueueDisc::Mode", StringValue("QUEUE_MODE_PACKETS"));
+        Config::SetDefault("ns3::PrioQueueDisc::EnableCache", BooleanValue(false));
+        Config::SetDefault("ns3::PrioQueueDisc::EnableMarking", BooleanValue(true));
+        Config::SetDefault("ns3::PrioQueueDisc::EnableUrge", BooleanValue(false));
+        Config::SetDefault("ns3::PrioQueueDisc::CacheBand", UintegerValue(m_cacheBand));
+        Config::SetDefault("ns3::PrioQueueDisc::MarkThre", DoubleValue(m_markThre));
+        Config::SetDefault("ns3::PrioQueueDisc::Scheduler", UintegerValue(m_scheduler));
+        m_reTxThre = 3;
         tc.SetRootQueueDisc("ns3::PrioQueueDisc");
         tc.AddPacketFilter(0, "ns3::PrioQueueDiscFilter");
     }
@@ -1519,7 +1593,7 @@ int main(int argc, char *argv[])
 
     NS_LOG_INFO("Calculating request rate");
     double requestRate = load * LEAF_SERVER_CAPACITY * PER_LEAF_SERVER_COUNT / oversubRatio / (8 * avg_cdf(cdfTable)) / PER_LEAF_SERVER_COUNT;
-    NS_LOG_INFO("Average request rate: " << requestRate << "Byte per second");
+    NS_LOG_INFO("Average request rate: " << requestRate << "Byte per second");//*/
 
     NS_LOG_INFO("Initialize random seed: " << randomSeed);
     if (randomSeed == 0)
@@ -1539,7 +1613,8 @@ int main(int argc, char *argv[])
 
     for (int srcLeafId = 0; srcLeafId < LEAF_COUNT; srcLeafId++)
     {
-        install_applications(srcLeafId, servers, requestRate, cdfTable, flowCount, totalFlowSize, totalCacheableSize, PER_LEAF_SERVER_COUNT, LEAF_COUNT, START_TIME, END_TIME, FLOW_LAUNCH_END_TIME, applicationPauseThresh, applicationPauseTime);
+        install_applications(srcLeafId, servers, requestRate, cdfTable, flowCount, totalFlowSize, totalCacheableSize, PER_LEAF_SERVER_COUNT, 
+                        LEAF_COUNT, START_TIME, END_TIME, FLOW_LAUNCH_END_TIME, applicationPauseThresh, applicationPauseTime,load);
     }
 
     std::cout << "Total flow: " << flowCount << std::endl;

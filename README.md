@@ -1,7 +1,3 @@
-<<<<<<< d95759bdefda48fab95f13c3b9449129bd6d0db2
-# CacheTrans
-CacheTrans aim to optimize the transmission of data centers.
-=======
 ns3-load-balance
 ===
 ![Build Status](https://travis-ci.com/snowzjx/ns3-load-balance.svg?token=h9rZZxytGHrsS5Xgsb6n&branch=master)
@@ -186,4 +182,3 @@ Please *DO NOT* use those parameters if you haven't read all the code
 --applicationPauseThresh:        How many packets can pass before we have delay, 0 for disable [default value: 0]
 --applicationPauseTime:          The time for a delay (in microseconds) [default value: 1000us]
 ```
->>>>>>> CacheTrans v1

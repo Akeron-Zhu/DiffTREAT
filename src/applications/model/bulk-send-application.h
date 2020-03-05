@@ -132,13 +132,14 @@ private:
   uint32_t        m_delayThresh;
   
   bool            m_enableRTORank;
-  bool            m_isNTcp;
+  uint32_t        m_scheduler;
   bool            m_enableSizeRank;
   uint8_t         m_rtoRank;
   uint8_t         m_sizeRank;
   uint32_t        m_cacheBand;
   uint32_t        m_reTxThre;
   uint32_t        m_cdfType;
+  uint32_t        m_load;
 
 
   /// Traced Callback: sent packets
